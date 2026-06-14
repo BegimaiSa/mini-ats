@@ -118,7 +118,7 @@ Deno.serve(async (request) => {
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            maxOutputTokens: 300,
+            maxOutputTokens: 1024,
             responseMimeType: "application/json",
             responseSchema: {
               type: "object",
@@ -127,6 +127,9 @@ Deno.serve(async (request) => {
                 summary: { type: "string" },
               },
               required: ["score", "summary"],
+            },
+            thinkingConfig: {
+              thinkingBudget: 0,
             },
           },
         }),
@@ -141,6 +144,10 @@ Deno.serve(async (request) => {
     }
 
     aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+    if (!aiText) {
+      console.error("Gemini returned no text.", JSON.stringify(data));
+    }
   } catch (fetchError) {
     return jsonResponse(
       { error: `AI assessment request failed: ${(fetchError as Error).message}` },
@@ -153,6 +160,7 @@ Deno.serve(async (request) => {
   try {
     parsed = extractJson(aiText) as { score?: unknown; summary?: unknown };
   } catch {
+    console.error("Could not parse Gemini response as JSON.", aiText);
     return jsonResponse({ error: "AI returned an unexpected response." }, 502);
   }
 
