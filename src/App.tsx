@@ -211,6 +211,9 @@ function Dashboard({ session }: { session: Session }) {
   const [jobFilter, setJobFilter] = useState("");
   const [selectedJob, setSelectedJob] = useState("");
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"error" | "success">(
+    "success",
+  );
   const [role, setRole] = useState("");
   const [description, setDescription] = useState("");
   const [candidateDescription, setCandidateDescription] = useState("");
@@ -225,6 +228,16 @@ function Dashboard({ session }: { session: Session }) {
     string | null
   >(null);
 
+  function showError(text: string) {
+    setMessage(text);
+    setMessageType("error");
+  }
+
+  function showSuccess(text: string) {
+    setMessage(text);
+    setMessageType("success");
+  }
+
   useEffect(() => {
     async function fetchRole() {
       const { data: profileById, error: profileByIdError } = await supabase
@@ -234,7 +247,7 @@ function Dashboard({ session }: { session: Session }) {
         .maybeSingle();
 
       if (profileByIdError) {
-        setMessage(`Could not read profile role: ${profileByIdError.message}`);
+        showError(`Could not read profile role: ${profileByIdError.message}`);
         return;
       }
 
@@ -256,7 +269,7 @@ function Dashboard({ session }: { session: Session }) {
           .maybeSingle();
 
       if (profileByEmailError) {
-        setMessage(
+        showError(
           `Could not read profile role: ${profileByEmailError.message}`,
         );
         return;
@@ -289,7 +302,7 @@ function Dashboard({ session }: { session: Session }) {
         }
 
         if (error) {
-          setMessage(error.message);
+          showError(error.message);
           return;
         }
 
@@ -358,7 +371,7 @@ function Dashboard({ session }: { session: Session }) {
       })
       .catch((error: Error) => {
         if (isMounted) {
-          setMessage(error.message);
+          showError(error.message);
         }
       });
 
@@ -371,7 +384,7 @@ function Dashboard({ session }: { session: Session }) {
     event.preventDefault();
 
     if (isAdmin && !actingAsCustomerId) {
-      setMessage("Select a customer to add a job for first.");
+      showError("Select a customer to add a job for first.");
       return;
     }
 
@@ -388,25 +401,25 @@ function Dashboard({ session }: { session: Session }) {
     ]);
 
     if (error) {
-      setMessage(error.message);
+      showError(error.message);
       return;
     }
 
     setTitle("");
     setCompany("");
-    setMessage("Job added.");
+    showSuccess("Job added.");
     setRole("");
     setDescription("");
     fetchJobs(ownerId)
       .then(setJobs)
-      .catch((nextError: Error) => setMessage(nextError.message));
+      .catch((nextError: Error) => showError(nextError.message));
   }
 
   async function addCandidate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (isAdmin && !actingAsCustomerId) {
-      setMessage("Select a customer to add a candidate for first.");
+      showError("Select a customer to add a candidate for first.");
       return;
     }
 
@@ -426,7 +439,7 @@ function Dashboard({ session }: { session: Session }) {
     ]);
 
     if (error) {
-      setMessage(error.message);
+      showError(error.message);
       return;
     }
 
@@ -434,13 +447,13 @@ function Dashboard({ session }: { session: Session }) {
     setLinkedinUrl("");
     setStatus("Applied");
     setSelectedJob("");
-    setMessage("Candidate added.");
+    showSuccess("Candidate added.");
     setCandidateDescription("");
     setCvText("");
 
     fetchCandidates(ownerId)
       .then(setCandidates)
-      .catch((nextError: Error) => setMessage(nextError.message));
+      .catch((nextError: Error) => showError(nextError.message));
   }
 
   async function assessCandidate(candidateId: string) {
@@ -469,7 +482,7 @@ function Dashboard({ session }: { session: Session }) {
         }
       }
 
-      setMessage(errorMessage);
+      showError(errorMessage);
       return;
     }
 
@@ -480,7 +493,7 @@ function Dashboard({ session }: { session: Session }) {
           : candidate,
       ),
     );
-    setMessage("AI assessment complete.");
+    showSuccess("AI assessment complete.");
   }
 
   async function updateCandidateStatus(
@@ -504,11 +517,11 @@ function Dashboard({ session }: { session: Session }) {
 
     if (error) {
       setCandidates(previousCandidates);
-      setMessage(error.message);
+      showError(error.message);
       return;
     }
 
-    setMessage("Candidate status updated.");
+    showSuccess("Candidate status updated.");
   }
 
   async function signOut() {
@@ -625,7 +638,15 @@ function Dashboard({ session }: { session: Session }) {
           </div>
         </div>
 
-        {message && <p className="form-message">{message}</p>}
+        {message && (
+          <p
+            className={`form-message ${
+              messageType === "error" ? "form-error" : "form-success"
+            }`}
+          >
+            {message}
+          </p>
+        )}
 
         <div className="kanban-board">
           {statuses.map((candidateStatus) => {
@@ -682,38 +703,40 @@ function Dashboard({ session }: { session: Session }) {
                             )}
                           </div>
                         )}
-                        <button
-                          type="button"
-                          className="ghost-button ai-assess-button"
-                          disabled={assessingCandidateId === candidate.id}
-                          onClick={() => assessCandidate(candidate.id)}
-                        >
-                          {assessingCandidateId === candidate.id
-                            ? "Assessing..."
-                            : candidate.ai_score != null
-                              ? "Re-assess with AI"
-                              : "Assess with AI"}
-                        </button>
-                        <select
-                          className="status-select"
-                          value={candidate.status}
-                          onChange={(event) =>
-                            updateCandidateStatus(
-                              candidate.id,
-                              event.target.value as CandidateStatus,
-                            )
-                          }
-                          aria-label={`Status for ${candidate.name}`}
-                        >
-                          {statuses.map((candidateStatus) => (
-                            <option
-                              key={candidateStatus}
-                              value={candidateStatus}
-                            >
-                              {candidateStatus}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="card-actions">
+                          <button
+                            type="button"
+                            className="ai-assess-button"
+                            disabled={assessingCandidateId === candidate.id}
+                            onClick={() => assessCandidate(candidate.id)}
+                          >
+                            {assessingCandidateId === candidate.id
+                              ? "Assessing..."
+                              : candidate.ai_score != null
+                                ? "Re-assess with AI"
+                                : "Assess with AI"}
+                          </button>
+                          <select
+                            className="status-select"
+                            value={candidate.status}
+                            onChange={(event) =>
+                              updateCandidateStatus(
+                                candidate.id,
+                                event.target.value as CandidateStatus,
+                              )
+                            }
+                            aria-label={`Status for ${candidate.name}`}
+                          >
+                            {statuses.map((candidateStatus) => (
+                              <option
+                                key={candidateStatus}
+                                value={candidateStatus}
+                              >
+                                {candidateStatus}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </article>
                     );
                   })}
@@ -840,7 +863,7 @@ function Dashboard({ session }: { session: Session }) {
         <section className="panel jobs-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">JOBS</p>
+              <p className="eyebrow">Open roles</p>
               <h2>Jobs</h2>
             </div>
           </div>
@@ -867,6 +890,9 @@ function AdminPanel() {
   const [accountPassword, setAccountPassword] = useState("");
   const [accountRole, setAccountRole] = useState<AccountRole>("customer");
   const [accountMessage, setAccountMessage] = useState("");
+  const [accountMessageType, setAccountMessageType] = useState<
+    "error" | "success"
+  >("success");
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
   async function createAccount(event: FormEvent<HTMLFormElement>) {
@@ -886,6 +912,7 @@ function AdminPanel() {
 
     if (error) {
       setAccountMessage(error.message);
+      setAccountMessageType("error");
       return;
     }
 
@@ -893,6 +920,7 @@ function AdminPanel() {
     setAccountPassword("");
     setAccountRole("customer");
     setAccountMessage(`Created ${data.email} as ${data.role}.`);
+    setAccountMessageType("success");
   }
 
   return (
@@ -938,7 +966,13 @@ function AdminPanel() {
       </form>
 
       {accountMessage && (
-        <p className="form-message admin-message">{accountMessage}</p>
+        <p
+          className={`form-message admin-message ${
+            accountMessageType === "error" ? "form-error" : "form-success"
+          }`}
+        >
+          {accountMessage}
+        </p>
       )}
     </section>
   );

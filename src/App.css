@@ -250,8 +250,6 @@ input::placeholder {
 
 .form-message {
   margin-bottom: 18px;
-  background: #ecfdf5;
-  color: #067647;
 }
 
 .form-success {
@@ -547,9 +545,39 @@ input::placeholder {
   line-height: 1.45;
 }
 
+.card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.card-actions > * {
+  flex: 1;
+  min-width: 0;
+}
+
 .ai-assess-button {
-  width: 100%;
-  margin-bottom: 12px;
+  border: 1px solid #ddd6fe;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #f5f3ff;
+  color: #6d28d9;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.ai-assess-button:hover {
+  background: #ede9fe;
+  transform: translateY(-1px);
+}
+
+.ai-assess-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
 }
 
 .status-select {
