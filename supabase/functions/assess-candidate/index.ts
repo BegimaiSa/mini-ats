@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+const GEMINI_MODEL = "gemini-2.5-flash";
 
 type CandidateRow = {
   id: string;
@@ -28,13 +28,13 @@ Deno.serve(async (request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
 
   if (!supabaseUrl || !anonKey) {
     return jsonResponse({ error: "Missing Supabase environment variables." }, 500);
   }
 
-  if (!anthropicApiKey) {
+  if (!geminiApiKey) {
     return jsonResponse({ error: "AI assessment is not configured." }, 500);
   }
 
@@ -107,28 +107,40 @@ Deno.serve(async (request) => {
   let aiText: string;
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": anthropicApiKey,
-        "anthropic-version": "2023-06-01",
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": geminiApiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: 300,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "object",
+              properties: {
+                score: { type: "integer" },
+                summary: { type: "string" },
+              },
+              required: ["score", "summary"],
+            },
+          },
+        }),
       },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: 300,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+    );
 
     const data = await response.json();
 
     if (!response.ok) {
-      const apiMessage = data?.error?.message ?? "Unknown Anthropic API error.";
+      const apiMessage = data?.error?.message ?? "Unknown Gemini API error.";
       return jsonResponse({ error: `AI assessment failed: ${apiMessage}` }, 502);
     }
 
-    aiText = data?.content?.[0]?.text ?? "";
+    aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
   } catch (fetchError) {
     return jsonResponse(
       { error: `AI assessment request failed: ${(fetchError as Error).message}` },
@@ -176,8 +188,7 @@ ${jobInfo}
 
 ${candidateInfo}
 
-Respond with STRICT JSON only, no extra text, in this exact shape:
-{"score": <integer 1-5, 1=poor fit, 5=excellent fit>, "summary": "<one short sentence, max 240 characters, explaining the score>"}`;
+Score the fit from 1 (poor fit) to 5 (excellent fit), and give a one-sentence summary (max 240 characters) explaining the score.`;
 }
 
 function extractJson(text: string): unknown {

@@ -296,6 +296,25 @@ input::placeholder {
   white-space: nowrap;
 }
 
+.customer-switcher {
+  max-width: 260px;
+}
+
+.empty-state-panel {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty-state-panel h2 {
+  margin-bottom: 8px;
+}
+
+.empty-state-panel p {
+  margin: 0 auto;
+  max-width: 32rem;
+  color: #64748b;
+}
+
 .role-pill {
   border-radius: 999px;
   padding: 10px 14px;
@@ -482,6 +501,57 @@ input::placeholder {
   text-decoration: underline;
 }
 
+.cv-textarea {
+  min-height: 76px;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+  outline: none;
+  resize: vertical;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.cv-textarea:focus {
+  border-color: #1f6feb;
+  box-shadow: 0 0 0 4px rgba(31, 111, 235, 0.12);
+}
+
+.ai-badge {
+  margin-bottom: 12px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f5f3ff;
+}
+
+.ai-score {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: #ede9fe;
+  color: #6d28d9;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ai-summary {
+  margin: 8px 0 0;
+  color: #5b21b6;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ai-assess-button {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
 .status-select {
   min-height: 38px;
   border-color: #dbe3ef;
@@ -534,6 +604,7 @@ input::placeholder {
   }
 
   .user-pill,
+  .customer-switcher,
   .search-input,
   .job-filter {
     max-width: none;

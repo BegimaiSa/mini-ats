@@ -23,6 +23,14 @@ type Candidate = {
   owner_id?: string;
   description?: string;
   job_title?: string;
+  cv_text?: string;
+  ai_score?: number | null;
+  ai_summary?: string | null;
+};
+
+type CustomerProfile = {
+  id: string;
+  email: string;
 };
 
 type CandidateStatus = "Applied" | "Interview" | "Offer";
@@ -210,7 +218,12 @@ function Dashboard({ session }: { session: Session }) {
     getUserRole(session),
   );
   const isAdmin = profileRole === "admin";
-  const [activeTab, setActiveTab] = useState<"job" | "candidate">("job");
+  const [customers, setCustomers] = useState<CustomerProfile[]>([]);
+  const [actingAsCustomerId, setActingAsCustomerId] = useState("");
+  const [cvText, setCvText] = useState("");
+  const [assessingCandidateId, setAssessingCandidateId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     async function fetchRole() {
@@ -258,14 +271,47 @@ function Dashboard({ session }: { session: Session }) {
     fetchRole();
   }, [session]);
 
-  async function fetchJobs() {
-    const { data, error } = await supabase
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+
+    let isMounted = true;
+
+    supabase
+      .from("profiles")
+      .select("id, email")
+      .eq("role", "customer")
+      .order("email", { ascending: true })
+      .then(({ data, error }) => {
+        if (!isMounted) {
+          return;
+        }
+
+        if (error) {
+          setMessage(error.message);
+          return;
+        }
+
+        setCustomers((data ?? []) as CustomerProfile[]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAdmin]);
+
+  async function fetchJobs(ownerId?: string) {
+    let query = supabase
       .from("jobs")
       .select("*")
       .order("created_at", { ascending: false });
 
-    console.log("JOBS:", data);
-    console.log("ERROR:", error);
+    if (ownerId) {
+      query = query.eq("owner_id", ownerId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -274,11 +320,17 @@ function Dashboard({ session }: { session: Session }) {
     return (data ?? []) as Job[];
   }
 
-  async function fetchCandidates() {
-    const { data, error } = await supabase
+  async function fetchCandidates(ownerId?: string) {
+    let query = supabase
       .from("candidates")
       .select("*")
       .order("created_at", { ascending: false });
+
+    if (ownerId) {
+      query = query.eq("owner_id", ownerId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -288,9 +340,14 @@ function Dashboard({ session }: { session: Session }) {
   }
 
   useEffect(() => {
-    let isMounted = true;
+    if (isAdmin && !actingAsCustomerId) {
+      return;
+    }
 
-    Promise.all([fetchJobs(), fetchCandidates()])
+    let isMounted = true;
+    const ownerId = isAdmin ? actingAsCustomerId : undefined;
+
+    Promise.all([fetchJobs(ownerId), fetchCandidates(ownerId)])
       .then(([nextJobs, nextCandidates]) => {
         if (!isMounted) {
           return;
@@ -308,10 +365,17 @@ function Dashboard({ session }: { session: Session }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAdmin, actingAsCustomerId]);
 
   async function addJob(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isAdmin && !actingAsCustomerId) {
+      setMessage("Select a customer to add a job for first.");
+      return;
+    }
+
+    const ownerId = isAdmin ? actingAsCustomerId : undefined;
 
     const { error } = await supabase.from("jobs").insert([
       {
@@ -319,6 +383,7 @@ function Dashboard({ session }: { session: Session }) {
         company,
         role,
         description,
+        ...(ownerId ? { owner_id: ownerId } : {}),
       },
     ]);
 
@@ -332,7 +397,7 @@ function Dashboard({ session }: { session: Session }) {
     setMessage("Job added.");
     setRole("");
     setDescription("");
-    fetchJobs()
+    fetchJobs(ownerId)
       .then(setJobs)
       .catch((nextError: Error) => setMessage(nextError.message));
   }
@@ -340,6 +405,12 @@ function Dashboard({ session }: { session: Session }) {
   async function addCandidate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (isAdmin && !actingAsCustomerId) {
+      setMessage("Select a customer to add a candidate for first.");
+      return;
+    }
+
+    const ownerId = isAdmin ? actingAsCustomerId : undefined;
     const selectedJobData = jobs.find((job) => job.title === selectedJob);
 
     const { error } = await supabase.from("candidates").insert([
@@ -349,6 +420,8 @@ function Dashboard({ session }: { session: Session }) {
         description: candidateDescription,
         status,
         job_id: selectedJobData?.id,
+        cv_text: cvText,
+        ...(ownerId ? { owner_id: ownerId } : {}),
       },
     ]);
 
@@ -363,10 +436,51 @@ function Dashboard({ session }: { session: Session }) {
     setSelectedJob("");
     setMessage("Candidate added.");
     setCandidateDescription("");
+    setCvText("");
 
-    fetchCandidates()
+    fetchCandidates(ownerId)
       .then(setCandidates)
       .catch((nextError: Error) => setMessage(nextError.message));
+  }
+
+  async function assessCandidate(candidateId: string) {
+    setAssessingCandidateId(candidateId);
+    setMessage("");
+
+    const { data, error } = await supabase.functions.invoke(
+      "assess-candidate",
+      { body: { candidateId } },
+    );
+
+    setAssessingCandidateId(null);
+
+    if (error) {
+      let errorMessage = error.message;
+
+      const context = (error as { context?: Response }).context;
+      if (context) {
+        try {
+          const body = await context.json();
+          if (body?.error) {
+            errorMessage = body.error;
+          }
+        } catch {
+          // ignore – fall back to error.message
+        }
+      }
+
+      setMessage(errorMessage);
+      return;
+    }
+
+    setCandidates((currentCandidates) =>
+      currentCandidates.map((candidate) =>
+        candidate.id === candidateId
+          ? { ...candidate, ai_score: data.score, ai_summary: data.summary }
+          : candidate,
+      ),
+    );
+    setMessage("AI assessment complete.");
   }
 
   async function updateCandidateStatus(
@@ -426,6 +540,21 @@ function Dashboard({ session }: { session: Session }) {
           <h1>Hiring pipeline</h1>
         </div>
         <div className="topbar-actions">
+          {isAdmin && (
+            <select
+              className="customer-switcher"
+              value={actingAsCustomerId}
+              onChange={(e) => setActingAsCustomerId(e.target.value)}
+              aria-label="Act as customer"
+            >
+              <option value="">Select a customer...</option>
+              {customers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.email}
+                </option>
+              ))}
+            </select>
+          )}
           <span className="role-pill">{profileRole}</span>
           <span className="user-pill">{session.user.email}</span>
           <button className="ghost-button" onClick={signOut}>
@@ -434,7 +563,20 @@ function Dashboard({ session }: { session: Session }) {
         </div>
       </header>
 
-      <section className="stats-grid" aria-label="Pipeline statistics">
+      {isAdmin && <AdminPanel />}
+
+      {isAdmin && !actingAsCustomerId ? (
+        <section className="panel empty-state-panel">
+          <p className="eyebrow">Act as customer</p>
+          <h2>Select a customer to get started</h2>
+          <p>
+            Choose a customer from the dropdown above to view and manage
+            their jobs and candidates.
+          </p>
+        </section>
+      ) : (
+        <>
+          <section className="stats-grid" aria-label="Pipeline statistics">
         <StatCard label="Jobs" value={jobs.length} />
         <StatCard label="Candidates" value={candidates.length} />
         <StatCard
@@ -528,6 +670,30 @@ function Dashboard({ session }: { session: Session }) {
                             LinkedIn Profile
                           </a>
                         )}
+                        {candidate.ai_score != null && (
+                          <div className="ai-badge">
+                            <span className="ai-score">
+                              AI fit: {candidate.ai_score}/5
+                            </span>
+                            {candidate.ai_summary && (
+                              <p className="ai-summary">
+                                {candidate.ai_summary}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          className="ghost-button ai-assess-button"
+                          disabled={assessingCandidateId === candidate.id}
+                          onClick={() => assessCandidate(candidate.id)}
+                        >
+                          {assessingCandidateId === candidate.id
+                            ? "Assessing..."
+                            : candidate.ai_score != null
+                              ? "Re-assess with AI"
+                              : "Assess with AI"}
+                        </button>
                         <select
                           className="status-select"
                           value={candidate.status}
@@ -561,8 +727,6 @@ function Dashboard({ session }: { session: Session }) {
           })}
         </div>
       </section>
-
-      {isAdmin && <AdminPanel />}
 
       <section className="workspace-grid">
         <div className="panel">
@@ -637,6 +801,13 @@ function Dashboard({ session }: { session: Session }) {
               onChange={(e) => setCandidateDescription(e.target.value)}
             />
 
+            <textarea
+              className="cv-textarea"
+              placeholder="Paste CV text (optional, used for AI fit assessment)"
+              value={cvText}
+              onChange={(e) => setCvText(e.target.value)}
+            />
+
             <div className="form-row">
               <input
                 type="text"
@@ -685,6 +856,8 @@ function Dashboard({ session }: { session: Session }) {
           </div>
         </section>
       </section>
+        </>
+      )}
     </main>
   );
 }
