@@ -107,52 +107,15 @@ Deno.serve(async (request) => {
   let aiText: string;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-goog-api-key": geminiApiKey,
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens: 1024,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: "object",
-              properties: {
-                score: { type: "integer" },
-                summary: { type: "string" },
-              },
-              required: ["score", "summary"],
-            },
-            thinkingConfig: {
-              thinkingBudget: 0,
-            },
-          },
-        }),
-      },
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      const apiMessage = data?.error?.message ?? "Unknown Gemini API error.";
-      return jsonResponse({ error: `AI assessment failed: ${apiMessage}` }, 502);
-    }
+    const data = await callGeminiWithRetry(geminiApiKey, prompt);
 
     aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
     if (!aiText) {
       console.error("Gemini returned no text.", JSON.stringify(data));
     }
-  } catch (fetchError) {
-    return jsonResponse(
-      { error: `AI assessment request failed: ${(fetchError as Error).message}` },
-      502,
-    );
+  } catch (geminiError) {
+    return jsonResponse({ error: (geminiError as Error).message }, 502);
   }
 
   let parsed: { score?: unknown; summary?: unknown };
@@ -182,6 +145,70 @@ Deno.serve(async (request) => {
 
   return jsonResponse({ score, summary });
 });
+
+async function callGeminiWithRetry(
+  apiKey: string,
+  prompt: string,
+  attempts = 3,
+): Promise<any> {
+  let lastErrorMessage = "Unknown Gemini API error.";
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    let response: Response;
+
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              maxOutputTokens: 1024,
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: "object",
+                properties: {
+                  score: { type: "integer" },
+                  summary: { type: "string" },
+                },
+                required: ["score", "summary"],
+              },
+              thinkingConfig: {
+                thinkingBudget: 0,
+              },
+            },
+          }),
+        },
+      );
+    } catch (fetchError) {
+      throw new Error(`AI assessment request failed: ${(fetchError as Error).message}`);
+    }
+
+    const data = await response.json();
+
+    if (response.ok) {
+      return data;
+    }
+
+    lastErrorMessage = data?.error?.message ?? "Unknown Gemini API error.";
+
+    const isOverloaded = response.status === 503 || response.status === 429;
+    const hasAttemptsLeft = attempt < attempts - 1;
+
+    if (!isOverloaded || !hasAttemptsLeft) {
+      throw new Error(`AI assessment failed: ${lastErrorMessage}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+  }
+
+  throw new Error(`AI assessment failed: ${lastErrorMessage}`);
+}
 
 function buildPrompt(candidate: CandidateRow, job: JobRow | null): string {
   const jobInfo = job
